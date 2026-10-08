@@ -45,6 +45,49 @@ test('API returns useful validation errors and does not create invalid bookings'
   assert.deepEqual(await listed.json(), []);
 });
 
+test('API rejects an overlapping booking with 409 naming the conflicting interval and title', async (t) => {
+  const request = await setup(t);
+  await request('/api/bookings', post(booking));
+  const response = await request(
+    '/api/bookings',
+    post({ ...booking, startTime: '2030-06-12T09:30:00Z', endTime: '2030-06-12T10:30:00Z' })
+  );
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(Object.keys(body).length, 1);
+  assert.match(body.error, /2030-06-12T09:00:00\.000Z/);
+  assert.match(body.error, /2030-06-12T10:00:00\.000Z/);
+  assert.match(body.error, /Design review/);
+  assert.doesNotMatch(body.error, /Sam Rivera/);
+  const listed = await request('/api/bookings?roomId=cedar&date=2030-06-12');
+  assert.equal((await listed.json()).length, 1);
+});
+
+test('a direct API request is rejected identically to one submitted through the form', async (t) => {
+  const request = await setup(t);
+  await request('/api/bookings', post(booking));
+  const response = await request('/api/bookings', post(booking));
+  assert.equal(response.status, 409);
+  assert.equal(Object.keys(await response.json()).length, 1);
+});
+
+test('a back-to-back booking in the same room succeeds via the API', async (t) => {
+  const request = await setup(t);
+  await request('/api/bookings', post(booking));
+  const response = await request(
+    '/api/bookings',
+    post({ ...booking, startTime: booking.endTime, endTime: '2030-06-12T11:00:00Z' })
+  );
+  assert.equal(response.status, 201);
+});
+
+test('two different rooms can be booked for the identical time range', async (t) => {
+  const request = await setup(t);
+  await request('/api/bookings', post(booking));
+  const response = await request('/api/bookings', post({ ...booking, roomId: 'maple' }));
+  assert.equal(response.status, 201);
+});
+
 test('API requires valid room and date filters', async (t) => {
   const request = await setup(t);
   for (const query of ['', '?roomId=missing&date=2030-06-12', '?roomId=cedar&date=2030-02-30']) {
